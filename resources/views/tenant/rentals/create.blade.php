@@ -50,6 +50,26 @@
                         this.syncSelectedGarage();
                     },
 
+                    get maxDailyDuration() {
+                        if (!this.startDate) return 30;
+                        const [y, m] = this.startDate.split('-').map(Number);
+                        if (!y || !m) return 30;
+                        const daysInMonth = new Date(y, m, 0).getDate();
+                        return daysInMonth - 1;
+                    },
+
+                    get maxDuration() {
+                        return this.rentalType === 'bulanan' ? 1 : this.maxDailyDuration;
+                    },
+
+                    onDurationConstraintChange() {
+                        if (this.rentalType === 'bulanan') {
+                            this.duration = 1;
+                        } else if (Number(this.duration) > this.maxDailyDuration) {
+                            this.duration = this.maxDailyDuration;
+                        }
+                    },
+
                     get filteredGarages() {
                         return this.garages.filter(g => g.type === this.garageType);
                     },
@@ -65,11 +85,15 @@
                         return this.filteredGarages.find(g => String(g.id) === String(this.selectedGarageId)) || null;
                     },
 
+                    get clampedDuration() {
+                        return Math.min(this.maxDuration, Math.max(1, Number(this.duration) || 1));
+                    },
+
                     get endDateFormatted() {
                         if (!this.startDate) return '-';
                         const [y, m, d] = this.startDate.split('-').map(Number);
                         const date = new Date(y, m - 1, d);
-                        const dur = Math.max(1, Number(this.duration) || 1);
+                        const dur = this.clampedDuration;
 
                         if (this.rentalType === 'harian') {
                             date.setDate(date.getDate() + dur);
@@ -87,7 +111,7 @@
                     get rentCost() {
                         if (!this.activeGarage) return 0;
                         const rate = Number(this.activeGarage.daily_rate);
-                        const dur = Math.max(1, Number(this.duration) || 1);
+                        const dur = this.clampedDuration;
                         return this.rentalType === 'harian'
                             ? rate * dur
                             : (rate * 25) * dur;
@@ -107,7 +131,7 @@
                         return 'Rp ' + Number(num).toLocaleString('id-ID');
                     }
                  }"
-                 x-init="onVehicleChange()">
+                 x-init="onVehicleChange(); onDurationConstraintChange()">
 
                 <form action="{{ route('tenant.rentals.store') }}" method="POST" enctype="multipart/form-data" class="space-y-6">
                     @csrf
@@ -198,20 +222,25 @@
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
                                 <label class="block text-sm font-medium text-gray-700">Tipe Sewa</label>
-                                <select name="rental_type" x-model="rentalType" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm" required>
+                                <select name="rental_type" x-model="rentalType" @change="onDurationConstraintChange()" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm" required>
                                     <option value="harian">Harian</option>
-                                    <option value="bulanan">Bulanan (25x Harga Harian)</option>
+                                    <option value="bulanan">Bulanan (Maks. 1 Bulan • 25x Harga Harian)</option>
                                 </select>
                             </div>
 
                             <div>
-                                <label class="block text-sm font-medium text-gray-700" x-text="rentalType === 'harian' ? 'Durasi Sewa (Hari)' : 'Durasi Sewa (Bulan)'"></label>
-                                <input type="number" name="duration" min="1" max="365" x-model="duration" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm" required>
+                                <label class="block text-sm font-medium text-gray-700"
+                                       x-text="rentalType === 'harian' ? 'Durasi Sewa (Hari, Maks. ' + maxDailyDuration + ' Hari)' : 'Durasi Sewa (Bulan, Maks. 1 Bulan)'"></label>
+                                <input type="number" name="duration" min="1" :max="maxDuration" x-model="duration" :readonly="rentalType === 'bulanan'" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm" :class="rentalType === 'bulanan' ? 'bg-gray-100 text-gray-600' : ''" required>
+                                <p class="text-xs text-gray-500 mt-1"
+                                   x-text="rentalType === 'harian'
+                                       ? 'Maksimal jumlah hari dalam bulan tersebut dikurangi 1 (' + maxDailyDuration + ' hari).'
+                                       : 'Sewa bulanan awal maksimal 1 bulan. Perpanjangan masa sewa dilakukan oleh Admin.'"></p>
                             </div>
 
                             <div>
                                 <label class="block text-sm font-medium text-gray-700">Tanggal Mulai Sewa</label>
-                                <input type="date" name="start_date" x-model="startDate" min="{{ now()->toDateString() }}" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm" required>
+                                <input type="date" name="start_date" x-model="startDate" @change="onDurationConstraintChange()" min="{{ now()->toDateString() }}" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm" required>
                             </div>
 
                             <div>

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Garage;
 use App\Models\Payment;
 use App\Models\Rental;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -61,6 +62,12 @@ class RentalController extends Controller
             abort(403, 'Akun Anda belum diverifikasi.');
         }
 
+        $maxDaily = ($request->filled('start_date') && strtotime($request->start_date) !== false)
+            ? Carbon::parse($request->start_date)->daysInMonth - 1
+            : 30;
+
+        $maxDuration = $request->rental_type === 'bulanan' ? 1 : $maxDaily;
+
         $request->validate([
             'vehicle_type' => ['required', 'in:sepeda,sepeda_motor,mobil,mobil_listrik'],
             'plate_number' => ['nullable', 'string', 'max:20', 'required_unless:vehicle_type,sepeda'],
@@ -70,9 +77,13 @@ class RentalController extends Controller
             'garage_type' => ['required', 'in:sepeda,mobil,mobil_listrik'],
             'garage_id' => ['required', 'exists:garages,id'],
             'rental_type' => ['required', 'in:harian,bulanan'],
-            'duration' => ['required', 'integer', 'min:1', 'max:365'],
+            'duration' => ['required', 'integer', 'min:1', "max:{$maxDuration}"],
             'start_date' => ['required', 'date', 'after_or_equal:today'],
             'payment_proof' => ['required', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:2048'],
+        ], [
+            'duration.max' => $request->rental_type === 'bulanan'
+                ? 'Durasi sewa bulanan maksimal 1 bulan. Jika ingin lebih lama, silakan hubungi Admin untuk perpanjangan.'
+                : "Durasi sewa harian pada bulan tersebut maksimal {$maxDaily} hari (jumlah hari dalam bulan - 1).",
         ]);
 
         // Memastikan tipe garasi sesuai dengan jenis kendaraan yang disewakan.
