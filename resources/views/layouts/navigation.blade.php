@@ -24,6 +24,10 @@
                         <x-nav-link :href="route('admin.garages.index')" :active="request()->routeIs('admin.garages.*')">
                             {{ __('Kelola Garasi') }}
                         </x-nav-link>
+
+                        <x-nav-link :href="route('admin.rentals.index')" :active="request()->routeIs('admin.rentals.*')">
+                            {{ __('Monitoring Sewa') }}
+                        </x-nav-link>
                     @endif
                     
                     @if (auth()->user()->role === 'penyewa')
@@ -98,6 +102,10 @@
 
                 <x-responsive-nav-link :href="route('admin.garages.index')" :active="request()->routeIs('admin.garages.*')">
                     {{ __('Kelola Garasi') }}
+                </x-responsive-nav-link>
+
+                <x-responsive-nav-link :href="route('admin.rentals.index')" :active="request()->routeIs('admin.rentals.*')">
+                    {{ __('Monitoring Sewa') }}
                 </x-responsive-nav-link>
             @endif
 

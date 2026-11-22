@@ -152,5 +152,5 @@ class RentalController extends Controller
                 ->route('tenant.rentals.index')
                 ->with('success', "Sewa garasi {$garage->code} berhasil diajukan!");
         });
-    }
+    } 
 }
