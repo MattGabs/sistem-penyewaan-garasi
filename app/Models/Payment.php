@@ -30,4 +30,39 @@ class Payment extends Model
     {
         return $this->belongsTo(Rental::class);
     }
+
+    /**
+     * Mengecek apakah nominal pembayaran valid (harus lebih dari 0).
+     */
+    public static function isValidAmount(int $amount): bool
+    {
+        return $amount > 0;
+    }
+
+    /**
+     * Mengecek apakah ekstensi file bukti pembayaran diizinkan.
+     */
+    public static function isAllowedProofExtension(string $filename): bool
+    {
+        $extension = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+
+        return in_array($extension, ['jpg', 'jpeg', 'png', 'pdf'], true);
+    }
+
+    /**
+     * Menghitung total pendapatan dari sekumpulan data pembayaran.
+     *
+     * @param  iterable<int, self|array{amount: int}>  $payments
+     */
+    public static function calculateTotalRevenue(iterable $payments): int
+    {
+        $total = 0;
+
+        foreach ($payments as $payment) {
+            $amount = is_array($payment) ? ($payment['amount'] ?? 0) : $payment->amount;
+            $total += max(0, (int) $amount);
+        }
+
+        return $total;
+    }
 }

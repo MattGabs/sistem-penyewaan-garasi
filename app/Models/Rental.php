@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Carbon;  
 
 /**
  * Model Rental untuk mengelola transaksi penyewaan garasi.
@@ -59,5 +60,40 @@ class Rental extends Model
     public function payments()
     {
         return $this->hasMany(Payment::class);
+    }
+
+    /**
+     * Menghitung tanggal selesai sewa dan total durasi hari berdasarkan paket (harian/bulanan).
+     *
+     * @return array{end_date: string, duration_days: int}
+     */
+    public static function calculateSchedule(string $startDate, string $rentalType, int $duration): array
+    {
+        $start = Carbon::parse($startDate);
+
+        if ($rentalType === 'harian') {
+            $end = $start->copy()->addDays($duration);
+            $days = $duration;
+        } else {
+            $end = $start->copy()->addMonthsNoOverflow($duration);
+            $days = (int) $start->diffInDays($end);
+        }
+
+        return [
+            'end_date' => $end->toDateString(),
+            'duration_days' => $days,
+        ];
+    }
+
+    /**
+     * Menghitung total biaya sewa (biaya sewa garasi + biaya listrik).
+     */
+    public static function calculateTotalCost(int $dailyRate, string $rentalType, int $duration, int $electricityCost = 0): int
+    {
+        $rentCost = $rentalType === 'harian'
+            ? $dailyRate * $duration
+            : ($dailyRate * 25) * $duration;
+
+        return $rentCost + $electricityCost;
     }
 }
