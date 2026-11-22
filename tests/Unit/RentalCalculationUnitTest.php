@@ -43,4 +43,14 @@ class RentalCalculationUnitTest extends TestCase
         $monthlyEvTotal = Rental::calculateTotalCost(50000, 'bulanan', 2, 40000);
         $this->assertEquals(2540000, $monthlyEvTotal);
     }
+
+    public function test_it_calculates_extension_cost_correctly(): void
+    {
+        // Tambahan 5 hari dengan tarif Rp 40.000/hari = Rp 200.000
+        $this->assertEquals(200000, Rental::calculateExtensionCost(40000, 5));
+
+        // Tambahan 35 hari (30 hari tarif bulanan 25x + 5 hari harian) dengan tarif Rp 40.000/hari
+        // (25 * 40.000) + (5 * 40.000) = 1.000.000 + 200.000 = Rp 1.200.000
+        $this->assertEquals(1200000, Rental::calculateExtensionCost(40000, 35));
+    }
 }

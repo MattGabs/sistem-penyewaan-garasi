@@ -1,7 +1,7 @@
 <x-app-layout>
     <x-slot name="header">
         <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-            Monitoring & Laporan Penyewaan Garasi
+            Perpanjangan & Laporan Penyewaan Garasi
         </h2>
     </x-slot>
 
@@ -29,7 +29,7 @@
                 </div>
             @endif
 
-            <!-- Ringkasan Statistik & Laporan -->
+            <!-- Ringkasan Statistik -->
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                 <div class="bg-white p-4 rounded-lg shadow-sm border">
                     <p class="text-xs text-gray-500 uppercase font-semibold">Total Garasi</p>
@@ -47,21 +47,174 @@
                 </div>
 
                 <div class="bg-white p-4 rounded-lg shadow-sm border">
-                    <p class="text-xs text-gray-500 uppercase font-semibold">Sewa Aktif</p>
-                    <p class="text-2xl font-bold text-indigo-600 mt-1">{{ $stats['active_rentals'] }}</p>
+                    <p class="text-xs text-gray-500 uppercase font-semibold">Transaksi (Filter)</p>
+                    <p class="text-2xl font-bold text-indigo-600 mt-1">{{ $stats['filtered_rentals'] }}</p>
                 </div>
 
                 <div class="bg-white p-4 rounded-lg shadow-sm border">
                     <p class="text-xs text-gray-500 uppercase font-semibold">Total Pendapatan</p>
-                    <p class="text-xl font-bold text-emerald-700 mt-1">Rp {{ number_format($stats['total_revenue'], 0, ',', '.') }}</p>
+                    <p class="text-xl font-bold text-emerald-700 mt-1">Rp {{ number_format($stats['filtered_revenue'], 0, ',', '.') }}</p>
                 </div>
             </div>
 
-            <!-- Tabel Seluruh Transaksi Sewa -->
-            <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6">
-                <h3 class="text-lg font-semibold mb-4">Daftar Transaksi Penyewaan</h3>
+            <!-- Poin 4: Perpanjang Status Garasi (Daftar Garasi yang Sedang Disewa Hari Ini) -->
+            <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6"
+                 x-data="{
+                    activeList: @js($activeRentalsToday->map(fn ($r) => [
+                        'id' => $r->id,
+                        'code' => $r->garage->code,
+                        'tenant' => $r->user->name,
+                        'end_date' => $r->end_date,
+                        'daily_rate' => $r->garage->daily_rate,
+                    ])->values()),
+                    selectedRentalId: '{{ $activeRentalsToday->first()?->id ?? '' }}',
+                    newEndDate: '',
 
-                <div class="overflow-x-auto">
+                    get selectedRental() {
+                        return this.activeList.find(item => String(item.id) === String(this.selectedRentalId)) || null;
+                    },
+
+                    get minNextDate() {
+                        if (!this.selectedRental) return '';
+                        const [y, m, d] = this.selectedRental.end_date.split('-').map(Number);
+                        const dt = new Date(y, m - 1, d + 1);
+                        return dt.toISOString().split('T')[0];
+                    },
+
+                    get addedDays() {
+                        if (!this.selectedRental || !this.newEndDate) return 0;
+                        const [y1, m1, d1] = this.selectedRental.end_date.split('-').map(Number);
+                        const [y2, m2, d2] = this.newEndDate.split('-').map(Number);
+                        const start = new Date(y1, m1 - 1, d1);
+                        const end = new Date(y2, m2 - 1, d2);
+                        const diff = Math.round((end - start) / (1000 * 60 * 60 * 24));
+                        return diff > 0 ? diff : 0;
+                    },
+
+                    get remainingCost() {
+                        if (!this.selectedRental || this.addedDays <= 0) return 0;
+                        const rate = Number(this.selectedRental.daily_rate);
+                        const months = Math.floor(this.addedDays / 30);
+                        const remDays = this.addedDays % 30;
+                        return (months * rate * 25) + (remDays * rate);
+                    },
+
+                    formatRupiah(num) {
+                        return 'Rp ' + Number(num).toLocaleString('id-ID');
+                    }
+                 }">
+                <h3 class="text-base font-semibold text-gray-800 mb-1">Perpanjang Status Garasi (Sewa Aktif Hari Ini)</h3>
+                <p class="text-xs text-gray-500 mb-4">Pilih salah satu garasi yang sedang disewa hari ini ({{ now()->format('d M Y') }}), tentukan tanggal selesai baru, dan unggah bukti pembayaran.</p>
+
+                @if ($activeRentalsToday->isEmpty())
+                    <p class="text-sm text-gray-500">Tidak ada garasi yang sedang disewa pada hari ini.</p>
+                @else
+                    <form :action="'{{ url('admin/monitoring-sewa') }}/' + selectedRentalId + '/perpanjang'" method="POST" enctype="multipart/form-data" class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                        @csrf
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-700">Pilih Garasi Sedang Disewa</label>
+                            <select x-model="selectedRentalId" @change="newEndDate = ''" class="mt-1 block w-full text-sm border-gray-300 rounded-md shadow-sm" required>
+                                <template x-for="item in activeList" :key="item.id">
+                                    <option :value="item.id" x-text="item.code + ' - ' + item.tenant + ' (s/d ' + item.end_date + ')'"></option>
+                                </template>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-700">Tanggal Selesai Sewa Baru</label>
+                            <input type="date" name="new_end_date" x-model="newEndDate" :min="minNextDate" class="mt-1 block w-full text-sm border-gray-300 rounded-md shadow-sm" required>
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-700">Upload Bukti Bayar (Gambar)</label>
+                            <input type="file" name="payment_proof" accept=".jpg,.jpeg,.png" class="mt-1 block w-full text-xs text-gray-600" required>
+                        </div>
+
+                        <div class="flex flex-col gap-1">
+                            <div class="text-xs font-bold text-indigo-700">
+                                Sisa Biaya (<span x-text="addedDays"></span> hari): <span x-text="formatRupiah(remainingCost)"></span>
+                            </div>
+                            <button type="submit" :disabled="addedDays <= 0" class="px-4 py-2 bg-indigo-600 text-white text-xs font-semibold rounded-md hover:bg-indigo-700 disabled:opacity-50">
+                                Simpan Perpanjangan
+                            </button>
+                        </div>
+                    </form>
+                @endif
+            </div>
+
+            <!-- Poin 5: Form Filter Laporan Sewa -->
+            <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6">
+                <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-3">Laporan Persewaan Garasi</h3>
+
+                <form method="GET" action="{{ route('admin.rentals.index') }}" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4 items-end">
+                    <div>
+                        <label class="block text-xs font-medium text-gray-700">Tahun</label>
+                        <select name="year" class="mt-1 block w-full text-sm border-gray-300 rounded-md shadow-sm">
+                            <option value="">Semua Tahun</option>
+                            @for ($y = now()->year - 1; $y <= now()->year + 2; $y++)
+                                <option value="{{ $y }}" {{ request('year') == $y ? 'selected' : '' }}>{{ $y }}</option>
+                            @endfor
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-medium text-gray-700">Bulan</label>
+                        <select name="month" class="mt-1 block w-full text-sm border-gray-300 rounded-md shadow-sm">
+                            <option value="">Semua Bulan</option>
+                            @foreach ([
+                                1 => 'Januari', 2 => 'Februari', 3 => 'Maret', 4 => 'April',
+                                5 => 'Mei', 6 => 'Juni', 7 => 'Juli', 8 => 'Agustus',
+                                9 => 'September', 10 => 'Oktober', 11 => 'November', 12 => 'Desember'
+                            ] as $num => $monthName)
+                                <option value="{{ $num }}" {{ request('month') == $num ? 'selected' : '' }}>{{ $monthName }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-medium text-gray-700">Hari (Tanggal)</label>
+                        <select name="day" class="mt-1 block w-full text-sm border-gray-300 rounded-md shadow-sm">
+                            <option value="">Semua Tanggal</option>
+                            @for ($d = 1; $d <= 31; $d++)
+                                <option value="{{ $d }}" {{ request('day') == $d ? 'selected' : '' }}>Tanggal {{ $d }}</option>
+                            @endfor
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-medium text-gray-700">Tipe Garasi</label>
+                        <select name="garage_type" class="mt-1 block w-full text-sm border-gray-300 rounded-md shadow-sm">
+                            <option value="">Semua Tipe</option>
+                            <option value="sepeda" {{ request('garage_type') === 'sepeda' ? 'selected' : '' }}>Sepeda</option>
+                            <option value="mobil" {{ request('garage_type') === 'mobil' ? 'selected' : '' }}>Mobil</option>
+                            <option value="mobil_listrik" {{ request('garage_type') === 'mobil_listrik' ? 'selected' : '' }}>Mobil Listrik</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-medium text-gray-700">Penyewa</label>
+                        <select name="user_id" class="mt-1 block w-full text-sm border-gray-300 rounded-md shadow-sm">
+                            <option value="">Semua Penyewa</option>
+                            @foreach ($tenants as $tenant)
+                                <option value="{{ $tenant->id }}" {{ request('user_id') == $tenant->id ? 'selected' : '' }}>
+                                    {{ $tenant->name }}
+                                </option>
+                            @endforeach
+                        </select>
+                    </div>
+
+                    <div class="flex gap-2">
+                        <button type="submit" class="w-full px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-md hover:bg-indigo-700">
+                            Tampilkan
+                        </button>
+                        <a href="{{ route('admin.rentals.index') }}" class="px-3 py-2 bg-gray-200 text-gray-700 text-sm font-semibold rounded-md hover:bg-gray-300">
+                            Reset
+                        </a>
+                    </div>
+                </form>
+
+                <!-- Tabel Hasil Laporan Persewaan -->
+                <div class="overflow-x-auto mt-6">
                     <table class="w-full text-left border-collapse">
                         <thead>
                             <tr class="border-b bg-gray-50">
@@ -72,27 +225,15 @@
                                 <th class="p-3">Total Biaya</th>
                                 <th class="p-3">Bukti Bayar</th>
                                 <th class="p-3">Status</th>
-                                <th class="p-3">Aksi</th>
                             </tr>
                         </thead>
-                        @forelse ($rentals as $rental)
-                            <tbody x-data="{
-                                showExtend: false,
-                                rentalType: 'harian',
-                                duration: 1,
-                                dailyRate: {{ $rental->garage->daily_rate }},
-                                get extensionCost() {
-                                    let dur = Math.max(1, Number(this.duration) || 1);
-                                    return this.rentalType === 'harian'
-                                        ? this.dailyRate * dur
-                                        : (this.dailyRate * 25) * dur;
-                                },
-                                formatRupiah(num) {
-                                    return 'Rp ' + Number(num).toLocaleString('id-ID');
-                                }
-                            }" class="border-b">
-                                <tr>
-                                    <td class="p-3 font-mono font-bold text-indigo-700">{{ $rental->garage->code }}</td>
+                        <tbody>
+                            @forelse ($rentals as $rental)
+                                <tr class="border-b">
+                                    <td class="p-3">
+                                        <div class="font-mono font-bold text-indigo-700">{{ $rental->garage->code }}</div>
+                                        <div class="text-xs text-gray-500 capitalize">{{ str_replace('_', ' ', $rental->garage->type) }}</div>
+                                    </td>
                                     <td class="p-3 text-sm">
                                         <div class="font-semibold">{{ $rental->user->name }}</div>
                                         <div class="text-xs text-gray-500">{{ $rental->user->phone }}</div>
@@ -130,66 +271,13 @@
                                             {{ strtoupper($rental->status) }}
                                         </span>
                                     </td>
-                                    <td class="p-3">
-                                        @if ($rental->status === 'active')
-                                            <button type="button" @click="showExtend = !showExtend" class="px-3 py-1 bg-indigo-600 text-white text-xs font-semibold rounded hover:bg-indigo-700">
-                                                Perpanjang
-                                            </button>
-                                        @else
-                                            <span class="text-gray-400 text-xs">-</span>
-                                        @endif
-                                    </td>
                                 </tr>
-
-                                <!-- Form Perpanjangan Sewa oleh Admin -->
-                                @if ($rental->status === 'active')
-                                    <tr x-show="showExtend" x-cloak class="bg-indigo-50/60">
-                                        <td colspan="8" class="p-4">
-                                            <form action="{{ route('admin.rentals.extend', $rental) }}" method="POST" enctype="multipart/form-data" class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-                                                @csrf
-                                                <div>
-                                                    <label class="block text-xs font-semibold text-gray-700">Paket Perpanjangan</label>
-                                                    <select name="rental_type" x-model="rentalType" class="mt-1 block w-full text-sm border-gray-300 rounded-md shadow-sm">
-                                                        <option value="harian">Harian</option>
-                                                        <option value="bulanan">Bulanan (25x Harian)</option>
-                                                    </select>
-                                                </div>
-
-                                                <div>
-                                                    <label class="block text-xs font-semibold text-gray-700" x-text="rentalType === 'harian' ? 'Tambah Durasi (Hari)' : 'Tambah Durasi (Bulan)'"></label>
-                                                    <input type="number" name="duration" min="1" max="365" x-model="duration" class="mt-1 block w-full text-sm border-gray-300 rounded-md shadow-sm" required>
-                                                </div>
-
-                                                <div>
-                                                    <label class="block text-xs font-semibold text-gray-700">Bukti Bayar Perpanjangan</label>
-                                                    <input type="file" name="payment_proof" accept=".jpg,.jpeg,.png,.pdf" class="mt-1 block w-full text-xs text-gray-600" required>
-                                                </div>
-
-                                                <div class="flex flex-col gap-1">
-                                                    <div class="text-xs font-bold text-indigo-700">
-                                                        Biaya Tambahan: <span x-text="formatRupiah(extensionCost)"></span>
-                                                    </div>
-                                                    <div class="flex gap-2">
-                                                        <button type="submit" class="px-3 py-2 bg-green-600 text-white text-xs font-semibold rounded hover:bg-green-700">
-                                                            Konfirmasi Perpanjang
-                                                        </button>
-                                                        <button type="button" @click="showExtend = false" class="px-3 py-2 bg-gray-300 text-gray-700 text-xs font-semibold rounded hover:bg-gray-400">
-                                                            Batal
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            </form>
-                                        </td>
-                                    </tr>
-                                @endif
-                            </tbody>
-                        @empty
-                            <tbody>
+                            @empty
                                 <tr>
-                                    <td colspan="8" class="p-4 text-center text-gray-500">Belum ada transaksi penyewaan.</td>
+                                    <td colspan="7" class="p-4 text-center text-gray-500">Tidak ada data penyewaan yang sesuai dengan filter.</td>
                                 </tr>
-                            </tbody>
-                        @endforelse
+                            @endforelse
+                        </tbody>
                     </table>
                 </div>
             </div>

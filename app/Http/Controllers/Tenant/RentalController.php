@@ -6,12 +6,11 @@ use App\Http\Controllers\Controller;
 use App\Models\Garage;
 use App\Models\Payment;
 use App\Models\Rental;
-use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Controller untuk mengelola proses penyewaan garasi oleh penyewa.
+ * Controller untuk mengelola proses penyewaan garasi oleh Penyewa.
  */
 class RentalController extends Controller
 {
@@ -29,94 +28,105 @@ class RentalController extends Controller
     }
 
     /**
-     * Menampilkan formulir penyewaan beserta ringkasan garasi tersedia.
+     * Menampilkan formulir penyewaan beserta daftar garasi yang tersedia.
      *
-     * Hanya penyewa dengan status verifikasi approved yang
-     * diperbolehkan mengakses formulir penyewaan.
+     * Hanya penyewa dengan status verifikasi approved yang dapat
+     * mengakses halaman penyewaan.
      */
     public function create(Request $request)
     {
         if ($request->user()->verification_status !== 'approved') {
             return redirect()
                 ->route('dashboard')
-                ->with('error', 'Akun Anda harus diverifikasi Admin terlebih dahulu sebelum menyewa garasi.');
+                ->with('error', 'Akun Anda belum terverifikasi oleh Admin sehingga belum dapat menyewa garasi.');
         }
 
-        $garageSummary = Garage::where('status', 'available')
-            ->selectRaw('type, COUNT(*) as available_count, MIN(daily_rate) as daily_rate, MIN(electricity_rate_per_kwh) as electricity_rate')
-            ->groupBy('type')
-            ->get()
-            ->keyBy('type');
+        $availableGarages = Garage::where('status', 'available')
+            ->orderBy('code')
+            ->get(['id', 'code', 'type', 'daily_rate', 'electricity_rate_per_kwh']);
 
-        return view('tenant.rentals.create', compact('garageSummary'));
+        return view('tenant.rentals.create', compact('availableGarages'));
     }
 
     /**
-     * Memvalidasi dan memproses permintaan penyewaan garasi.
+     * Memvalidasi dan memproses pengajuan penyewaan garasi.
      *
-     * Menghitung biaya sewa dan listrik, menyimpan data rental
-     * beserta bukti pembayaran, kemudian memperbarui status garasi.
+     * Memeriksa kesesuaian tipe kendaraan dan garasi, menghitung
+     * biaya penyewaan serta listrik, menyimpan transaksi dan bukti
+     * pembayaran, kemudian memperbarui status garasi menjadi used.
      */
     public function store(Request $request)
     {
         if ($request->user()->verification_status !== 'approved') {
-            abort(403, 'Akun Anda belum diverifikasi oleh Admin.');
+            abort(403, 'Akun Anda belum diverifikasi.');
         }
 
         $request->validate([
             'vehicle_type' => ['required', 'in:sepeda,sepeda_motor,mobil,mobil_listrik'],
-            'plate_number' => ['required_unless:vehicle_type,sepeda', 'nullable', 'string', 'max:15'],
+            'plate_number' => ['nullable', 'string', 'max:20', 'required_unless:vehicle_type,sepeda'],
             'vehicle_brand_type' => ['required', 'string', 'max:100'],
-            'battery_capacity_kwh' => ['required_if:vehicle_type,mobil_listrik', 'nullable', 'numeric', 'min:1', 'max:999999.99'],
-            'remaining_battery_kwh' => ['required_if:vehicle_type,mobil_listrik', 'nullable', 'numeric', 'min:0', 'lte:battery_capacity_kwh'],
+            'battery_capacity_kwh' => ['nullable', 'numeric', 'min:1', 'max:500', 'required_if:vehicle_type,mobil_listrik'],
+            'remaining_battery_kwh' => ['nullable', 'numeric', 'min:0', 'lte:battery_capacity_kwh'],
+            'garage_type' => ['required', 'in:sepeda,mobil,mobil_listrik'],
+            'garage_id' => ['required', 'exists:garages,id'],
             'rental_type' => ['required', 'in:harian,bulanan'],
             'duration' => ['required', 'integer', 'min:1', 'max:365'],
             'start_date' => ['required', 'date', 'after_or_equal:today'],
             'payment_proof' => ['required', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:2048'],
         ]);
 
-        $garageTypeMap = [
-            'sepeda' => 'sepeda',
-            'sepeda_motor' => 'sepeda',
-            'mobil' => 'mobil',
-            'mobil_listrik' => 'mobil_listrik',
-        ];
+        // Memastikan tipe garasi sesuai dengan jenis kendaraan yang disewakan.
+        $allowedGarageTypes = match ($request->vehicle_type) {
+            'sepeda', 'sepeda_motor' => ['sepeda'],
+            'mobil' => ['mobil'],
+            'mobil_listrik' => ['mobil', 'mobil_listrik'],
+        };
 
-        $targetGarageType = $garageTypeMap[$request->vehicle_type];
+        if (! in_array($request->garage_type, $allowedGarageTypes, true)) {
+            return back()
+                ->withInput()
+                ->withErrors(['garage_type' => 'Tipe garasi tidak sesuai dengan jenis kendaraan yang dipilih.']);
+        }
 
-        return DB::transaction(function () use ($request, $targetGarageType) {
-            $garage = Garage::where('type', $targetGarageType)
+        if ($request->garage_type === 'mobil_listrik' && ($request->remaining_battery_kwh === null || $request->remaining_battery_kwh === '')) {
+            return back()
+                ->withInput()
+                ->withErrors(['remaining_battery_kwh' => 'Sisa baterai saat ini wajib diisi jika memilih Garasi Mobil Listrik.']);
+        }
+
+        return DB::transaction(function () use ($request) {
+            // Memastikan unit yang dipilih masih tersedia dan mengunci data selama transaksi.
+            $garage = Garage::where('id', $request->garage_id)
+                ->where('type', $request->garage_type)
                 ->where('status', 'available')
-                ->orderBy('code', 'asc')
                 ->lockForUpdate()
                 ->first();
 
             if (! $garage) {
                 return back()
-                    ->withErrors(['vehicle_type' => 'Maaf, unit garasi untuk tipe kendaraan ini sedang penuh.'])
-                    ->withInput();
+                    ->withInput()
+                    ->withErrors(['garage_id' => 'Unit garasi yang dipilih sudah terpakai atau tidak sesuai tipe. Silakan pilih unit lain.']);
             }
 
-            $startDate = Carbon::parse($request->start_date);
             $duration = (int) $request->duration;
+            $schedule = Rental::calculateSchedule($request->start_date, $request->rental_type, $duration);
 
-            if ($request->rental_type === 'harian') {
-                $durationDays = $duration;
-                $endDate = $startDate->copy()->addDays($durationDays);
-                $rentCost = $garage->daily_rate * $durationDays;
-            } else {
-                $endDate = $startDate->copy()->addMonthsNoOverflow($duration);
-                $durationDays = (int) $startDate->diffInDays($endDate);
-                $rentCost = ($garage->daily_rate * 25) * $duration;
-            }
-
+            // Biaya listrik hanya dihitung untuk garasi mobil listrik.
             $electricityCost = 0;
-            if ($request->vehicle_type === 'mobil_listrik') {
-                $kwhNeeded = max(0, (float) $request->battery_capacity_kwh - (float) $request->remaining_battery_kwh);
-                $electricityCost = (int) round($kwhNeeded * $garage->electricity_rate_per_kwh);
+            if ($garage->type === 'mobil_listrik') {
+                $electricityCost = $garage->calculateElectricityCost(
+                    (float) $request->battery_capacity_kwh,
+                    (float) ($request->remaining_battery_kwh ?? 0)
+                );
             }
 
-            $totalCost = $rentCost + $electricityCost;
+            $totalCost = Rental::calculateTotalCost(
+                $garage->daily_rate,
+                $request->rental_type,
+                $duration,
+                $electricityCost
+            );
+
             $proofPath = $request->file('payment_proof')->store('payment_proofs', 'public');
 
             $rental = Rental::create([
@@ -126,11 +136,11 @@ class RentalController extends Controller
                 'plate_number' => $request->vehicle_type === 'sepeda' ? null : strtoupper($request->plate_number),
                 'vehicle_brand_type' => $request->vehicle_brand_type,
                 'battery_capacity_kwh' => $request->vehicle_type === 'mobil_listrik' ? $request->battery_capacity_kwh : null,
-                'remaining_battery_kwh' => $request->vehicle_type === 'mobil_listrik' ? $request->remaining_battery_kwh : null,
+                'remaining_battery_kwh' => $garage->type === 'mobil_listrik' ? $request->remaining_battery_kwh : null,
                 'rental_type' => $request->rental_type,
-                'duration_days' => $durationDays,
-                'start_date' => $startDate->toDateString(),
-                'end_date' => $endDate->toDateString(),
+                'duration_days' => $schedule['duration_days'],
+                'start_date' => $request->start_date,
+                'end_date' => $schedule['end_date'],
                 'electricity_cost' => $electricityCost,
                 'total_cost' => $totalCost,
                 'status' => 'active',
@@ -144,13 +154,11 @@ class RentalController extends Controller
                 'payment_date' => now()->toDateString(),
             ]);
 
-            $garage->update([
-                'status' => 'used',
-            ]);
+            $garage->update(['status' => 'used']);
 
             return redirect()
                 ->route('tenant.rentals.index')
-                ->with('success', "Sewa garasi {$garage->code} berhasil diajukan!");
+                ->with('success', "Berhasil menyewa garasi {$garage->code}. Status garasi kini terpakai (used).");
         });
-    } 
+    }
 }

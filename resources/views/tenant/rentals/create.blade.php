@@ -1,203 +1,254 @@
 <x-app-layout>
     <x-slot name="header">
         <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-            Ajukan Sewa Garasi Baru
+            Form Sewa Garasi Baru
         </h2>
     </x-slot>
 
     <div class="py-12">
-        <div class="max-w-4xl mx-auto sm:px-6 lg:px-8 space-y-6">
-            <!-- Info Ketersediaan Unit -->
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                @php
-                    $labels = [
-                        'sepeda' => 'Garasi Sepeda / Motor (S)',
-                        'mobil' => 'Garasi Mobil (C)',
-                        'mobil_listrik' => 'Garasi Mobil Listrik (E)',
-                    ];
-                @endphp
+        <div class="max-w-4xl mx-auto sm:px-6 lg:px-8">
+            @if ($errors->any())
+                <div class="mb-4 p-4 bg-red-100 text-red-800 rounded-lg">
+                    <ul class="list-disc list-inside text-sm">
+                        @foreach ($errors->all() as $error)
+                            <li>{{ $error }}</li>
+                        @endforeach
+                    </ul>
+                </div>
+            @endif
 
-                @foreach ($labels as $key => $label)
-                    @php $info = $garageSummary->get($key); @endphp
-                    <div class="bg-white p-4 rounded-lg shadow-sm border">
-                        <p class="text-sm font-semibold text-gray-700">{{ $label }}</p>
-                        <p class="text-2xl font-bold mt-1 {{ ($info->available_count ?? 0) > 0 ? 'text-green-600' : 'text-red-600' }}">
-                            {{ $info->available_count ?? 0 }} <span class="text-sm font-normal text-gray-500">unit tersedia</span>
-                        </p>
-                        @if ($info)
-                            <p class="text-xs text-gray-500 mt-1">
-                                Rp {{ number_format($info->daily_rate, 0, ',', '.') }}/hari
-                                @if ($info->electricity_rate)
-                                    • Listrik Rp {{ number_format($info->electricity_rate, 0, ',', '.') }}/kWh
-                                @endif
-                            </p>
-                        @endif
-                    </div>
-                @endforeach
-            </div>
-
-            <!-- Form Penyewaan -->
             <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6"
                  x-data="{
-                    rates: @js($garageSummary),
+                    garages: @js($availableGarages),
                     vehicleType: '{{ old('vehicle_type', 'sepeda') }}',
+                    garageType: '{{ old('garage_type', 'sepeda') }}',
+                    selectedGarageId: '{{ old('garage_id', '') }}',
                     rentalType: '{{ old('rental_type', 'harian') }}',
                     duration: {{ old('duration', 1) }},
-                    startDate: '{{ old('start_date', date('Y-m-d')) }}',
-                    batteryCapacity: {{ old('battery_capacity_kwh', 0) ?: 0 }},
-                    remainingBattery: {{ old('remaining_battery_kwh', 0) ?: 0 }},
+                    startDate: '{{ old('start_date', now()->toDateString()) }}',
+                    batteryCapacity: {{ old('battery_capacity_kwh', 0) }},
+                    remainingBattery: {{ old('remaining_battery_kwh', 0) }},
 
-                    get garageKey() {
-                        return (this.vehicleType === 'sepeda' || this.vehicleType === 'sepeda_motor')
-                            ? 'sepeda'
-                            : this.vehicleType;
+                    get allowedGarageOptions() {
+                        if (this.vehicleType === 'sepeda' || this.vehicleType === 'sepeda_motor') {
+                            return [{ value: 'sepeda', label: 'Garasi Sepeda' }];
+                        }
+                        if (this.vehicleType === 'mobil') {
+                            return [{ value: 'mobil', label: 'Garasi Mobil' }];
+                        }
+                        return [
+                            { value: 'mobil', label: 'Garasi Mobil' },
+                            { value: 'mobil_listrik', label: 'Garasi Mobil Listrik (Wajib Isi Listrik Penuh)' }
+                        ];
                     },
-                    get dailyRate() {
-                        return this.rates[this.garageKey] ? Number(this.rates[this.garageKey].daily_rate) : 0;
+
+                    onVehicleChange() {
+                        const allowed = this.allowedGarageOptions.map(o => o.value);
+                        if (!allowed.includes(this.garageType)) {
+                            this.garageType = allowed[0];
+                        }
+                        this.syncSelectedGarage();
                     },
-                    get electricityRate() {
-                        return this.rates[this.garageKey] && this.rates[this.garageKey].electricity_rate
-                            ? Number(this.rates[this.garageKey].electricity_rate)
-                            : 0;
+
+                    get filteredGarages() {
+                        return this.garages.filter(g => g.type === this.garageType);
                     },
+
+                    syncSelectedGarage() {
+                        const list = this.filteredGarages;
+                        if (!list.some(g => String(g.id) === String(this.selectedGarageId))) {
+                            this.selectedGarageId = list.length > 0 ? String(list[0].id) : '';
+                        }
+                    },
+
+                    get activeGarage() {
+                        return this.filteredGarages.find(g => String(g.id) === String(this.selectedGarageId)) || null;
+                    },
+
+                    get endDateFormatted() {
+                        if (!this.startDate) return '-';
+                        const [y, m, d] = this.startDate.split('-').map(Number);
+                        const date = new Date(y, m - 1, d);
+                        const dur = Math.max(1, Number(this.duration) || 1);
+
+                        if (this.rentalType === 'harian') {
+                            date.setDate(date.getDate() + dur);
+                        } else {
+                            const targetMonth = date.getMonth() + dur;
+                            const originalDay = date.getDate();
+                            date.setMonth(targetMonth);
+                            if (date.getDate() < originalDay) {
+                                date.setDate(0);
+                            }
+                        }
+                        return date.toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' });
+                    },
+
                     get rentCost() {
-                        let dur = Math.max(1, Number(this.duration) || 1);
+                        if (!this.activeGarage) return 0;
+                        const rate = Number(this.activeGarage.daily_rate);
+                        const dur = Math.max(1, Number(this.duration) || 1);
                         return this.rentalType === 'harian'
-                            ? this.dailyRate * dur
-                            : (this.dailyRate * 25) * dur;
+                            ? rate * dur
+                            : (rate * 25) * dur;
                     },
+
                     get electricityCost() {
-                        if (this.vehicleType !== 'mobil_listrik') return 0;
-                        let needed = Math.max(0, Number(this.batteryCapacity) - Number(this.remainingBattery));
-                        return Math.round(needed * this.electricityRate);
+                        if (!this.activeGarage || this.garageType !== 'mobil_listrik') return 0;
+                        const kwhNeeded = Math.max(0, (Number(this.batteryCapacity) || 0) - (Number(this.remainingBattery) || 0));
+                        return Math.round(kwhNeeded * Number(this.activeGarage.electricity_rate_per_kwh || 0));
                     },
+
                     get totalCost() {
                         return this.rentCost + this.electricityCost;
                     },
-                    get endDateFormatted() {
-                        if (!this.startDate) return '-';
-                        let dur = Math.max(1, Number(this.duration) || 1);
-                        let d = new Date(this.startDate + 'T00:00:00');
-                        if (this.rentalType === 'harian') {
-                            d.setDate(d.getDate() + dur);
-                        } else {
-                            let targetMonth = d.getMonth() + dur;
-                            let targetYear = d.getFullYear() + Math.floor(targetMonth / 12);
-                            targetMonth = targetMonth % 12;
-                            let maxDay = new Date(targetYear, targetMonth + 1, 0).getDate();
-                            d = new Date(targetYear, targetMonth, Math.min(d.getDate(), maxDay));
-                        }
-                        return d.toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' });
-                    },
+
                     formatRupiah(num) {
                         return 'Rp ' + Number(num).toLocaleString('id-ID');
                     }
-                 }">
+                 }"
+                 x-init="onVehicleChange()">
 
-                <form action="{{ route('tenant.rentals.store') }}" method="POST" enctype="multipart/form-data" class="space-y-4">
+                <form action="{{ route('tenant.rentals.store') }}" method="POST" enctype="multipart/form-data" class="space-y-6">
                     @csrf
 
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <!-- Tipe Kendaraan -->
-                        <div>
-                            <x-input-label for="vehicle_type" :value="__('Jenis Kendaraan')" />
-                            <select id="vehicle_type" name="vehicle_type" x-model="vehicleType" class="mt-1 block w-full border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm">
-                                <option value="sepeda">Sepeda</option>
-                                <option value="sepeda_motor">Sepeda Motor</option>
-                                <option value="mobil">Mobil</option>
-                                <option value="mobil_listrik">Mobil Listrik (EV)</option>
-                            </select>
-                            <x-input-error :messages="$errors->get('vehicle_type')" class="mt-2" />
-                        </div>
-
-                        <!-- Merek & Tipe Kendaraan -->
-                        <div>
-                            <x-input-label for="vehicle_brand_type" :value="__('Merek & Tipe Kendaraan')" />
-                            <x-text-input id="vehicle_brand_type" name="vehicle_brand_type" type="text" class="mt-1 block w-full" placeholder="Contoh: Honda Vario / Wuling Air EV" :value="old('vehicle_brand_type')" required />
-                            <x-input-error :messages="$errors->get('vehicle_brand_type')" class="mt-2" />
-                        </div>
-
-                        <!-- Nomor Plat (Wajib kecuali Sepeda) -->
-                        <div x-show="vehicleType !== 'sepeda'" x-cloak>
-                            <x-input-label for="plate_number" :value="__('Nomor Plat Kendaraan')" />
-                            <x-text-input id="plate_number" name="plate_number" type="text" class="mt-1 block w-full uppercase" placeholder="Contoh: L 1234 AB" :value="old('plate_number')" x-bind:required="vehicleType !== 'sepeda'" />
-                            <x-input-error :messages="$errors->get('plate_number')" class="mt-2" />
-                        </div>
-
-                        <!-- Input Khusus Mobil Listrik -->
-                        <template x-if="vehicleType === 'mobil_listrik'">
-                            <div class="contents">
-                                <div>
-                                    <x-input-label for="battery_capacity_kwh" :value="__('Kapasitas Baterai Maksimal (kWh)')" />
-                                    <x-text-input id="battery_capacity_kwh" name="battery_capacity_kwh" type="number" step="0.01" min="1" class="mt-1 block w-full" x-model="batteryCapacity" required />
-                                    <x-input-error :messages="$errors->get('battery_capacity_kwh')" class="mt-2" />
-                                </div>
-
-                                <div>
-                                    <x-input-label for="remaining_battery_kwh" :value="__('Sisa Baterai Saat Ini (kWh)')" />
-                                    <x-text-input id="remaining_battery_kwh" name="remaining_battery_kwh" type="number" step="0.01" min="0" class="mt-1 block w-full" x-model="remainingBattery" required />
-                                    <x-input-error :messages="$errors->get('remaining_battery_kwh')" class="mt-2" />
-                                </div>
+                    <!-- Bagian 1: Detail Kendaraan -->
+                    <div>
+                        <h3 class="text-base font-semibold text-gray-800 border-b pb-2 mb-4">1. Detail Kendaraan</h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">Tipe Kendaraan</label>
+                                <select name="vehicle_type" x-model="vehicleType" @change="onVehicleChange()" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm" required>
+                                    <option value="sepeda">Sepeda</option>
+                                    <option value="sepeda_motor">Sepeda Motor</option>
+                                    <option value="mobil">Mobil</option>
+                                    <option value="mobil_listrik">Mobil Listrik</option>
+                                </select>
                             </div>
-                        </template>
 
-                        <!-- Paket Sewa -->
-                        <div>
-                            <x-input-label for="rental_type" :value="__('Paket Sewa')" />
-                            <select id="rental_type" name="rental_type" x-model="rentalType" class="mt-1 block w-full border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm">
-                                <option value="harian">Harian</option>
-                                <option value="bulanan">Bulanan (Tarif 25x Harian / Bulan)</option>
-                            </select>
-                            <x-input-error :messages="$errors->get('rental_type')" class="mt-2" />
-                        </div>
+                            <div x-show="vehicleType !== 'sepeda'" x-cloak>
+                                <label class="block text-sm font-medium text-gray-700">Nomor Plat Kendaraan</label>
+                                <input type="text" name="plate_number" value="{{ old('plate_number') }}" placeholder="Contoh: L 1234 AB" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm" :required="vehicleType !== 'sepeda'">
+                            </div>
 
-                        <!-- Durasi -->
-                        <div>
-                            <x-input-label for="duration" x-text="rentalType === 'harian' ? 'Durasi Sewa (Hari)' : 'Durasi Sewa (Bulan)'" />
-                            <x-text-input id="duration" name="duration" type="number" min="1" max="365" class="mt-1 block w-full" x-model="duration" required />
-                            <x-input-error :messages="$errors->get('duration')" class="mt-2" />
-                        </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">Merek & Tipe Kendaraan</label>
+                                <input type="text" name="vehicle_brand_type" value="{{ old('vehicle_brand_type') }}" placeholder="Contoh: Wuling Air EV / Honda Vario" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm" required>
+                            </div>
 
-                        <!-- Tanggal Mulai -->
-                        <div>
-                            <x-input-label for="start_date" :value="__('Tanggal Mulai Sewa')" />
-                            <x-text-input id="start_date" name="start_date" type="date" min="{{ date('Y-m-d') }}" class="mt-1 block w-full" x-model="startDate" required />
-                            <x-input-error :messages="$errors->get('start_date')" class="mt-2" />
-                        </div>
-
-                        <!-- Upload Bukti Pembayaran -->
-                        <div>
-                            <x-input-label for="payment_proof" :value="__('Upload Bukti Pembayaran (JPG, PNG, PDF - Maks 2MB)')" />
-                            <input id="payment_proof" name="payment_proof" type="file" accept=".jpg,.jpeg,.png,.pdf" class="mt-1 block w-full text-sm text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" required />
-                            <x-input-error :messages="$errors->get('payment_proof')" class="mt-2" />
+                            <div x-show="vehicleType === 'mobil_listrik'" x-cloak>
+                                <label class="block text-sm font-medium text-gray-700">Kapasitas Listrik Baterai (kWh)</label>
+                                <input type="number" step="0.1" min="1" name="battery_capacity_kwh" x-model="batteryCapacity" placeholder="Contoh: 26.7" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm" :required="vehicleType === 'mobil_listrik'">
+                            </div>
                         </div>
                     </div>
 
-                    <!-- Ringkasan Estimasi Biaya -->
-                    <div class="mt-6 p-4 bg-gray-50 rounded-lg border space-y-2 text-sm">
-                        <h4 class="font-semibold text-gray-800 text-base">Ringkasan Estimasi Sewa</h4>
-                        <div class="flex justify-between">
-                            <span class="text-gray-600">Tanggal Selesai Sewa:</span>
-                            <span class="font-semibold" x-text="endDateFormatted"></span>
+                    <!-- Bagian 2: Pilihan Tipe & Unit Garasi Tersedia -->
+                    <div>
+                        <h3 class="text-base font-semibold text-gray-800 border-b pb-2 mb-4">2. Pemilihan Tipe & Unit Garasi Tersedia</h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">Tipe Garasi (Sesuai Kendaraan)</label>
+                                <select name="garage_type" x-model="garageType" @change="syncSelectedGarage()" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm" required>
+                                    <template x-for="opt in allowedGarageOptions" :key="opt.value">
+                                        <option :value="opt.value" x-text="opt.label" :selected="opt.value === garageType"></option>
+                                    </template>
+                                </select>
+                            </div>
+
+                            <div x-show="garageType === 'mobil_listrik'" x-cloak>
+                                <label class="block text-sm font-medium text-gray-700">Sisa Kapasitas Baterai Saat Ini (kWh)</label>
+                                <input type="number" step="0.1" min="0" name="remaining_battery_kwh" x-model="remainingBattery" placeholder="Contoh: 6.7" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm" :required="garageType === 'mobil_listrik'">
+                                <p class="text-xs text-gray-500 mt-1">Mobil listrik di garasi mobil listrik akan diisi hingga penuh.</p>
+                            </div>
                         </div>
-                        <div class="flex justify-between">
-                            <span class="text-gray-600">Biaya Sewa Garasi:</span>
-                            <span class="font-semibold" x-text="formatRupiah(rentCost)"></span>
-                        </div>
-                        <div class="flex justify-between" x-show="vehicleType === 'mobil_listrik'" x-cloak>
-                            <span class="text-gray-600">Biaya Pengisian Listrik (Full Charge):</span>
-                            <span class="font-semibold" x-text="formatRupiah(electricityCost)"></span>
-                        </div>
-                        <div class="flex justify-between border-t pt-2 text-base font-bold text-indigo-700">
-                            <span>Total Pembayaran:</span>
-                            <span x-text="formatRupiah(totalCost)"></span>
+
+                        <!-- Daftar Garasi Tersedia -->
+                        <div class="mt-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Daftar Garasi Tersedia Pada Tanggal Hari Ini ({{ now()->format('d M Y') }})</label>
+
+                            <template x-if="filteredGarages.length === 0">
+                                <div class="p-3 bg-yellow-50 border border-yellow-200 text-yellow-800 text-sm rounded-md">
+                                    Maaf, saat ini tidak ada unit garasi yang tersedia untuk tipe yang dipilih.
+                                </div>
+                            </template>
+
+                            <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3" x-show="filteredGarages.length > 0">
+                                <template x-for="g in filteredGarages" :key="g.id">
+                                    <label class="border rounded-lg p-3 cursor-pointer flex items-start gap-3 transition"
+                                           :class="String(selectedGarageId) === String(g.id) ? 'border-indigo-600 bg-indigo-50' : 'border-gray-200 hover:border-indigo-300'">
+                                        <input type="radio" name="garage_id" :value="g.id" x-model="selectedGarageId" class="mt-1 text-indigo-600" required>
+                                        <div class="text-sm">
+                                            <div class="font-mono font-bold text-indigo-700" x-text="g.code"></div>
+                                            <div class="text-xs text-gray-600">Harian: <span x-text="formatRupiah(g.daily_rate)"></span></div>
+                                            <div class="text-xs text-gray-600">Bulanan: <span x-text="formatRupiah(g.daily_rate * 25)"></span></div>
+                                            <template x-if="g.type === 'mobil_listrik'">
+                                                <div class="text-xs text-emerald-700">Listrik: <span x-text="formatRupiah(g.electricity_rate_per_kwh)"></span>/kWh</div>
+                                            </template>
+                                        </div>
+                                    </label>
+                                </template>
+                            </div>
                         </div>
                     </div>
 
-                    <div class="flex justify-end">
-                        <x-primary-button>
-                            Konfirmasi & Sewa Garasi
-                        </x-primary-button>
+                    <!-- Bagian 3: Paket & Durasi Sewa -->
+                    <div>
+                        <h3 class="text-base font-semibold text-gray-800 border-b pb-2 mb-4">3. Paket, Periode & Pembayaran</h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">Tipe Sewa</label>
+                                <select name="rental_type" x-model="rentalType" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm" required>
+                                    <option value="harian">Harian</option>
+                                    <option value="bulanan">Bulanan (25x Harga Harian)</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700" x-text="rentalType === 'harian' ? 'Durasi Sewa (Hari)' : 'Durasi Sewa (Bulan)'"></label>
+                                <input type="number" name="duration" min="1" max="365" x-model="duration" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm" required>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">Tanggal Mulai Sewa</label>
+                                <input type="date" name="start_date" x-model="startDate" min="{{ now()->toDateString() }}" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm" required>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">Tanggal Selesai Sewa (Otomatis)</label>
+                                <input type="text" :value="endDateFormatted" class="mt-1 block w-full bg-gray-100 border-gray-300 rounded-md shadow-sm font-semibold text-gray-800" readonly>
+                            </div>
+                        </div>
+
+                        <!-- Ringkasan Total Biaya -->
+                        <div class="mt-4 p-4 bg-indigo-50 border border-indigo-200 rounded-lg space-y-1">
+                            <div class="flex justify-between text-sm text-gray-700">
+                                <span>Biaya Sewa Garasi:</span>
+                                <span class="font-medium" x-text="formatRupiah(rentCost)"></span>
+                            </div>
+                            <div class="flex justify-between text-sm text-gray-700" x-show="garageType === 'mobil_listrik'">
+                                <span>Biaya Pengisian Listrik Hingga Penuh:</span>
+                                <span class="font-medium" x-text="formatRupiah(electricityCost)"></span>
+                            </div>
+                            <div class="flex justify-between text-base font-bold text-indigo-800 border-t border-indigo-200 pt-2 mt-2">
+                                <span>Total Biaya Sewa yang Harus Dibayar:</span>
+                                <span x-text="formatRupiah(totalCost)"></span>
+                            </div>
+                        </div>
+
+                        <div class="mt-4">
+                            <label class="block text-sm font-medium text-gray-700">Upload Bukti Pelunasan Biaya (JPG/PNG/PDF)</label>
+                            <input type="file" name="payment_proof" accept=".jpg,.jpeg,.png,.pdf" class="mt-1 block w-full text-sm text-gray-600" required>
+                        </div>
+                    </div>
+
+                    <div class="flex justify-end gap-3 pt-2">
+                        <a href="{{ route('tenant.rentals.index') }}" class="px-4 py-2 bg-gray-200 text-gray-700 text-sm font-semibold rounded-md hover:bg-gray-300">
+                            Batal
+                        </a>
+                        <button type="submit" :disabled="filteredGarages.length === 0" class="px-5 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-md hover:bg-indigo-700 disabled:opacity-50">
+                            Simpan & Sewa Garasi
+                        </button>
                     </div>
                 </form>
             </div>

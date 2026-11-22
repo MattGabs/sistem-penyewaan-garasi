@@ -96,4 +96,16 @@ class Rental extends Model
 
         return $rentCost + $electricityCost;
     }
+    
+    /**
+     * Menghitung sisa biaya perpanjangan sewa berdasarkan tambahan hari.
+     * Setiap kelipatan 30 hari dihitung tarif bulanan (25x harian), sisanya tarif harian.
+     */
+    public static function calculateExtensionCost(int $dailyRate, int$addedDays): int
+    {
+        $months = intdiv($addedDays, 30);
+        $remainingDays =$addedDays % 30;
+
+        return ($months * ($dailyRate * 25)) + ($remainingDays * $dailyRate);
+    }
 }

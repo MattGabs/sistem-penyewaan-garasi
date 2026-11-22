@@ -6,67 +6,109 @@ use App\Http\Controllers\Controller;
 use App\Models\Garage;
 use App\Models\Payment;
 use App\Models\Rental;
+use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Controller untuk memantau dan mengelola transaksi penyewaan oleh Admin.
+ * Controller untuk mengelola perpanjangan sewa dan laporan penyewaan oleh Admin.
  */
 class RentalMonitoringController extends Controller
 {
     /**
-     * Menampilkan statistik garasi, total pendapatan,
-     * dan daftar seluruh transaksi penyewaan.
+     * Menampilkan laporan penyewaan berdasarkan periode, tipe garasi,
+     * dan penyewa, beserta statistik serta daftar garasi yang sedang disewa.
      */
-    public function index()
+    public function index(Request $request)
     {
+        $query = Rental::with(['user', 'garage', 'payments']);
+
+        // Filter 1: Per bulan dalam tahun tertentu
+        if ($request->filled('year')) {
+            $query->whereYear('start_date', $request->year);
+        }
+
+        if ($request->filled('month')) {
+            if (! $request->filled('year')) {
+                $query->whereYear('start_date', now()->year);
+            }
+            $query->whereMonth('start_date', $request->month);
+        }
+
+        // Filter 2: Per hari dalam bulan tertentu
+        if ($request->filled('day')) {
+            if (! $request->filled('year')) {
+                $query->whereYear('start_date', now()->year);
+            }
+            if (! $request->filled('month')) {
+                $query->whereMonth('start_date', now()->month);
+            }
+            $query->whereDay('start_date', $request->day);
+        }
+
+        // Filter 3: Per Tipe Garasi
+        if ($request->filled('garage_type')) {
+            $query->whereHas('garage', function ($q) use ($request) {
+                $q->where('type', $request->garage_type);
+            });
+        }
+
+        // Filter 4: Per Penyewa
+        if ($request->filled('user_id')) {
+            $query->where('user_id', $request->user_id);
+        }
+
+        $rentals = $query
+            ->orderByRaw("CASE WHEN status = 'active' THEN 1 ELSE 2 END")
+            ->latest('start_date')
+            ->get();
+
+        // Menampilkan garasi yang masa sewanya masih berlangsung pada hari ini.
+        $today = now()->toDateString();
+        $activeRentalsToday = Rental::with(['user', 'garage'])
+            ->where('status', 'active')
+            ->whereDate('start_date', '<=', $today)
+            ->whereDate('end_date', '>=', $today)
+            ->get();
+
         $stats = [
             'total_garages' => Garage::count(),
             'available_garages' => Garage::where('status', 'available')->count(),
             'used_garages' => Garage::where('status', 'used')->count(),
-            'active_rentals' => Rental::where('status', 'active')->count(),
-            'total_revenue' => Payment::sum('amount'),
+            'filtered_rentals' => $rentals->count(),
+            'filtered_revenue' => $rentals->sum('total_cost'),
         ];
 
-        $rentals = Rental::with(['user', 'garage', 'payments'])
-            ->orderByRaw("CASE WHEN status = 'active' THEN 1 ELSE 2 END")
-            ->latest()
-            ->get();
+        $tenants = User::where('role', 'penyewa')
+            ->orderBy('name')
+            ->get(['id', 'name', 'nik']);
 
-        return view('admin.rentals.index', compact('stats', 'rentals'));
+        return view('admin.rentals.index', compact('stats', 'rentals', 'activeRentalsToday', 'tenants'));
     }
 
     /**
-     * Memproses perpanjangan masa sewa oleh Admin,
+     * Memperpanjang masa sewa dengan memperbarui tanggal selesai,
      * menghitung biaya tambahan, dan menyimpan bukti pembayaran.
      */
     public function extend(Request $request, Rental $rental)
     {
         if ($rental->status !== 'active') {
-            return back()->with('error', 'Transaksi sewa ini sudah selesai dan tidak dapat diperpanjang.');
+            return back()->with('error', 'Transaksi sewa ini sudah tidak aktif dan tidak dapat diperpanjang.');
         }
 
+        $currentEndDate = Carbon::parse($rental->end_date);
+
         $request->validate([
-            'rental_type' => ['required', 'in:harian,bulanan'],
-            'duration' => ['required', 'integer', 'min:1', 'max:365'],
-            'payment_proof' => ['required', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:2048'],
+            'new_end_date' => ['required', 'date', 'after:' . $currentEndDate->toDateString()],
+            'payment_proof' => ['required', 'image', 'mimes:jpg,jpeg,png', 'max:2048'],
         ]);
 
-        return DB::transaction(function () use ($request, $rental) {
+        return DB::transaction(function () use ($request, $rental, $currentEndDate) {
             $garage = $rental->garage;
-            $currentEndDate = Carbon::parse($rental->end_date);
-            $duration = (int) $request->duration;
-
-            if ($request->rental_type === 'harian') {
-                $addedDays = $duration;
-                $newEndDate = $currentEndDate->copy()->addDays($addedDays);
-                $addedCost = $garage->daily_rate * $addedDays;
-            } else {
-                $newEndDate = $currentEndDate->copy()->addMonthsNoOverflow($duration);
-                $addedDays = (int) $currentEndDate->diffInDays($newEndDate);
-                $addedCost = ($garage->daily_rate * 25) * $duration;
-            }
+            $newEndDate = Carbon::parse($request->new_end_date);
+            $addedDays = (int) $currentEndDate->diffInDays($newEndDate);
+            $addedCost = Rental::calculateExtensionCost($garage->daily_rate, $addedDays);
 
             $proofPath = $request->file('payment_proof')->store('payment_proofs', 'public');
 
