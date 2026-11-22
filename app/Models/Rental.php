@@ -4,6 +4,9 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
+/**
+ * Model Rental untuk mengelola transaksi penyewaan garasi.
+ */
 class Rental extends Model
 {
     protected $fillable = [
@@ -28,16 +31,31 @@ class Rental extends Model
         'end_date' => 'date',
     ];
 
+    /**
+     * Mendapatkan pengguna yang melakukan penyewaan.
+     *
+     * @return \Illuminate\Database\Eloquent\Relations\BelongsTo
+     */
     public function user()
     {
         return $this->belongsTo(User::class);
     }
 
+    /**
+     * Mendapatkan data garasi yang digunakan dalam penyewaan.
+     *
+     * @return \Illuminate\Database\Eloquent\Relations\BelongsTo
+     */
     public function garage()
     {
         return $this->belongsTo(Garage::class);
     }
 
+    /**
+     * Mendapatkan seluruh riwayat pembayaran untuk penyewaan ini.
+     *
+     * @return \Illuminate\Database\Eloquent\Relations\HasMany
+     */
     public function payments()
     {
         return $this->hasMany(Payment::class);

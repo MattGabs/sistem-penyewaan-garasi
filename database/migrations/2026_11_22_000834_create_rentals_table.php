@@ -6,6 +6,11 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
+    /**
+     * Membuat tabel rentals untuk menyimpan transaksi penyewaan,
+     * termasuk informasi penyewa, garasi, kendaraan, periode,
+     * biaya, dan status penyewaan.
+     */
     public function up(): void
     {
         Schema::create('rentals', function (Blueprint $table) {
@@ -28,6 +33,9 @@ return new class extends Migration
         });
     }
 
+     /**
+     * Menghapus tabel rentals saat migration di-rollback.
+     */
     public function down(): void
     {
         Schema::dropIfExists('rentals');

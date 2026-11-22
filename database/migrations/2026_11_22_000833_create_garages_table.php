@@ -6,6 +6,10 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
+    /**
+     * Membuat tabel garages untuk menyimpan data garasi,
+     * tipe garasi, tarif sewa, tarif listrik, dan status ketersediaan.
+     */
     public function up(): void
     {
         Schema::create('garages', function (Blueprint $table) {
@@ -19,6 +23,9 @@ return new class extends Migration
         });
     }
 
+     /**
+     * Menghapus tabel garages saat migration di-rollback.
+     */
     public function down(): void
     {
         Schema::dropIfExists('garages');

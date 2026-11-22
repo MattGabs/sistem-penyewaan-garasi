@@ -6,6 +6,10 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
+     /**
+     * Menambahkan kolom NIK, nomor telepon, role,
+     * dan status verifikasi pada tabel users.
+     */
     public function up(): void
     {
         Schema::table('users', function (Blueprint $table) {
@@ -16,6 +20,9 @@ return new class extends Migration
         });
     }
 
+    /**
+    * Menghapus seluruh kolom tambahan saat migration di-rollback.
+    */
     public function down(): void
     {
         Schema::table('users', function (Blueprint $table) {

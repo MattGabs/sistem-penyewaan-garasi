@@ -11,6 +11,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
+/**
+ * Model User untuk mengelola data pengguna dan autentikasi.
+ */
 #[Fillable(['nik', 'name', 'phone', 'email', 'password', 'role', 'verification_status'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
@@ -19,7 +22,7 @@ class User extends Authenticatable
     use HasFactory, Notifiable;
 
     /**
-     * Get the attributes that should be cast.
+     * Mengatur konversi tipe data atribut saat diakses atau disimpan.
      *
      * @return array<string, string>
      */
@@ -31,6 +34,9 @@ class User extends Authenticatable
         ];
     }
 
+    /**
+     * Mendapatkan seluruh data rental milik pengguna.
+     */
     public function rentals(): HasMany
     {
         return $this->hasMany(Rental::class);

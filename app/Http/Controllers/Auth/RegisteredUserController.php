@@ -13,10 +13,13 @@ use Illuminate\Validation\Rules;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
+/**
+ * Controller untuk menangani proses registrasi pengguna baru.
+ */
 class RegisteredUserController extends Controller
 {
     /**
-     * Display the registration view.
+     * Menampilkan halaman formulir pendaftaran pengguna.
      */
     public function create(): View
     {
@@ -24,7 +27,10 @@ class RegisteredUserController extends Controller
     }
 
     /**
-     * Handle an incoming registration request.
+     * Memvalidasi dan menyimpan data pendaftaran pengguna baru.
+     *
+     * Akun yang berhasil didaftarkan secara otomatis mendapatkan
+     * role penyewa dan status verifikasi pending.
      *
      * @throws ValidationException
      */
