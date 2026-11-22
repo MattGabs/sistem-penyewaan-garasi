@@ -4,6 +4,7 @@ use App\Http\Controllers\ProfileController;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Admin\UserVerificationController;
 use App\Http\Controllers\Admin\GarageController;
+use App\Http\Controllers\Tenant\RentalController;
 
 // Route halaman utama aplikasi.
 Route::get('/', function () {
@@ -25,6 +26,17 @@ Route::middleware(['auth', 'role:admin'])->prefix('admin')->name('admin.')->grou
     // Menampilkan daftar garasi dan memproses penambahan garasi baru.
     Route::get('/garasi', [GarageController::class, 'index'])->name('garages.index');
     Route::post('/garasi', [GarageController::class, 'store'])->name('garages.store');
+});
+
+// Mengelompokkan route khusus Penyewa dengan middleware autentikasi dan pembatasan role.
+Route::middleware(['auth', 'role:penyewa'])->prefix('penyewa')->name('tenant.')->group(function () {
+
+    // Menampilkan riwayat penyewaan dan formulir penyewaan garasi.
+    Route::get('/sewa', [RentalController::class, 'index'])->name('rentals.index');
+    Route::get('/sewa/baru', [RentalController::class, 'create'])->name('rentals.create');
+
+    // Memproses pengajuan penyewaan garasi baru.
+    Route::post('/sewa', [RentalController::class, 'store'])->name('rentals.store');
 });
 
 // Route pengelolaan profil yang hanya dapat diakses pengguna yang sudah login.

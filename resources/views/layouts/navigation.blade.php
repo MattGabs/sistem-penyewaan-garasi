@@ -25,6 +25,16 @@
                             {{ __('Kelola Garasi') }}
                         </x-nav-link>
                     @endif
+                    
+                    @if (auth()->user()->role === 'penyewa')
+                        <x-nav-link :href="route('tenant.rentals.create')" :active="request()->routeIs('tenant.rentals.create')">
+                            {{ __('Sewa Garasi') }}
+                        </x-nav-link>
+
+                        <x-nav-link :href="route('tenant.rentals.index')" :active="request()->routeIs('tenant.rentals.index')">
+                            {{ __('Riwayat Sewa') }}
+                        </x-nav-link>
+                    @endif
                 </div>
             </div>
 
@@ -88,6 +98,16 @@
 
                 <x-responsive-nav-link :href="route('admin.garages.index')" :active="request()->routeIs('admin.garages.*')">
                     {{ __('Kelola Garasi') }}
+                </x-responsive-nav-link>
+            @endif
+
+            @if (auth()->user()->role === 'penyewa')
+                <x-responsive-nav-link :href="route('tenant.rentals.create')" :active="request()->routeIs('tenant.rentals.create')">
+                    {{ __('Sewa Garasi') }}
+                </x-responsive-nav-link>
+
+                <x-responsive-nav-link :href="route('tenant.rentals.index')" :active="request()->routeIs('tenant.rentals.index')">
+                    {{ __('Riwayat Sewa') }}
                 </x-responsive-nav-link>
             @endif
         </div>
