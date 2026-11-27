@@ -64,7 +64,7 @@
                         'id' => $r->id,
                         'code' => $r->garage->code,
                         'tenant' => $r->user->name,
-                        'end_date' => $r->end_date,
+                        'end_date' => $r->end_date->toDateString(),
                         'daily_rate' => $r->garage->daily_rate,
                     ])->values()),
                     selectedRentalId: '{{ $activeRentalsToday->first()?->id ?? '' }}',
@@ -78,7 +78,10 @@
                         if (!this.selectedRental) return '';
                         const [y, m, d] = this.selectedRental.end_date.split('-').map(Number);
                         const dt = new Date(y, m - 1, d + 1);
-                        return dt.toISOString().split('T')[0];
+                        const yyyy = dt.getFullYear();
+                        const mm = String(dt.getMonth() + 1).padStart(2, '0');
+                        const dd = String(dt.getDate()).padStart(2, '0');
+                        return `${yyyy}-${mm}-${dd}`;
                     },
 
                     get addedDays() {
